@@ -97,15 +97,22 @@ jobs:
           path: attractplus-${{ steps.version.outputs.version }}-x86_64.AppImage
           if-no-files-found: error
 
-      - name: Publish GitHub Release
+      - name: Create or update GitHub Release
         if: github.ref_type == 'tag'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            "attractplus-${VERSION}-x86_64.AppImage" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            --verify-tag
+          set -euo pipefail
 
+          tag="$GITHUB_REF_NAME"
+          asset="attractplus-${VERSION}-x86_64.AppImage"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$asset" --clobber
+          else
+            gh release create "$tag" "$asset" \
+              --title "$tag" \
+              --generate-notes \
+              --verify-tag
+          fi
