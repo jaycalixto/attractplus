@@ -4,11 +4,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - "**"
-  pull_request:
-    paths:
-      - "**"
   workflow_dispatch:
   workflow_call:
 
