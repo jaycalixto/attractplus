@@ -1,0 +1,116 @@
+name: Linux x86_64 AppImage
+
+on:
+  push:
+    tags:
+      - "v*"
+    branches:
+      - "**"
+  pull_request:
+    paths:
+      - "**"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build-appimage:
+    name: Build Linux x86_64 AppImage
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          version="$(sed -n 's/^override FE_VERSION := v//p' Makefile | head -1)"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake pkg-config \
+            libavformat-dev libavcodec-dev libavutil-dev \
+            libswscale-dev libswresample-dev \
+            libfreetype-dev libopenal-dev libflac-dev libvorbis-dev \
+            libgl-dev libglu1-mesa-dev libudev-dev \
+            libx11-dev libxi-dev libxrandr-dev libxcursor-dev libxinerama-dev \
+            libarchive-dev libcurl4-openssl-dev \
+            libexpat1-dev zlib1g-dev libjpeg-dev wget
+
+      - name: Compile and stage into AppDir
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          make -j"$(nproc)" STATIC=1 prefix=/usr
+          make STATIC=1 prefix=/usr DESTDIR="$PWD/AppDir" install
+
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+
+          cp resources/images/Logo.png \
+            AppDir/usr/share/icons/hicolor/256x256/apps/attractplus.png
+
+          cat > AppDir/usr/share/applications/attractplus.desktop <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=Attract-Mode Plus
+          Exec=attractplus
+          Icon=attractplus
+          Categories=Game;
+          Terminal=false
+          EOF
+
+          test -x AppDir/usr/bin/attractplus
+
+      - name: Build AppImage
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          wget -q \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
+            -O linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+
+          ARCH=x86_64 \
+          LDAI_NO_APPSTREAM=1 \
+          LDAI_OUTPUT="attractplus-${VERSION}-x86_64.AppImage" \
+            ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
+              --appdir AppDir \
+              --executable AppDir/usr/bin/attractplus \
+              --desktop-file AppDir/usr/share/applications/attractplus.desktop \
+              --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/attractplus.png \
+              --output appimage
+
+          test -f "attractplus-${VERSION}-x86_64.AppImage"
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: attractplus-${{ steps.version.outputs.version }}-x86_64-AppImage
+          path: attractplus-${{ steps.version.outputs.version }}-x86_64.AppImage
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "attractplus-${VERSION}-x86_64.AppImage" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag
+
